@@ -183,4 +183,14 @@ MLS$school_dist <- factor(MLS$school_dist)
 MLS$year<- factor(MLS$year) 
 MLS$zipcode <- factor(MLS$zipcode)
 
+# Delete what we will not need in the analysis
+
+MLS$yearbuilt<-NULL 
+MLS$pool <- NULL 
+MLS$sqft <- NULL 
+MLS$heattype <- NULL 
+MLS$basement <- NULL 
+MLS$city <- NULL 
+MLS$elemsch <- NULL 
+
 
