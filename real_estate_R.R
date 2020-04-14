@@ -15,12 +15,13 @@ library(gridExtra)  #to put many graphs in one (subplots)
 library(tidyr)      #get some extra tools like separate
 
 # Set working environment to my git folder
-#setwd("D:/data/real_estate/real_estate_model")
+# setwd("D:/data/real_estate/real_estate_model")
 
 
 # Load data
 
-MLS <- read.csv("data/data4project.csv", stringsAsFactors = FALSE,strip.white = TRUE,sep = ',') 
+MLS <- read.csv("data/data4project.csv", stringsAsFactors = FALSE
+                ,strip.white = TRUE,sep = ',') 
 str(MLS)
 
 # Check my data
@@ -50,7 +51,8 @@ plot(MLS$bedrooms,MLS$lnprice, xlab="bedrooms",ylab="lnprice")
 
 plot(MLS$baths,MLS$lnprice,xlab="baths",ylab="lnprice")
 
-plot(MLS$days_on_market,MLS$lnprice,xlab="days_on_the_market",ylab="lnprice")
+plot(MLS$days_on_market,MLS$lnprice,xlab="days_on_the_market"
+     ,ylab="lnprice")
 
 plot(MLS$age,MLS$lnprice, xlab="age",ylab="lnprice")
 
@@ -64,8 +66,10 @@ barplot(counts, ylab="counts", xlab="log of price sold")
 #first, cleaning up the type:
 unique(MLS$type)
 
-MLS$type <- ifelse(MLS$type=="Res"   | MLS$type=="Resid", "Residential", MLS$type) 
-MLS$type <- ifelse(MLS$type=="Multi" | MLS$type=="Mdw", "Multidweling", MLS$type) 
+MLS$type <- ifelse(MLS$type=="Res"   | MLS$type=="Resid", "Residential"
+                   , MLS$type) 
+MLS$type <- ifelse(MLS$type=="Multi" | MLS$type=="Mdw", "Multidweling"
+                   , MLS$type) 
 MLS$type <- ifelse(MLS$type=="Condo", "Built As Condomimum", MLS$type) 
 MLS$type <- ifelse(MLS$type=="", "Other", MLS$type) 
 unique(MLS$type)
@@ -194,3 +198,118 @@ MLS$city <- NULL
 MLS$elemsch <- NULL 
 
 
+## Predicting Home Prices 
+# After doing all the preliminary work, 
+# We can finally use the data to answer some questions. 
+
+# Hedonic Regressions
+
+sm<-summary(lm(lnprice ~
+                 bedrooms + age + baths + style + type 
+               + basementdummy  + pooldummy 
+               , data = MLS))
+sm
+
+mean(sm$residuals^2)
+
+
+# Including fixed-effects to account for 
+# unobservables variables that are fix 
+# within and vary across a neighborhoods 
+# (school dist, postal code)
+
+sm<-summary(lm(lnprice ~ 
+                 bedrooms + age + baths + style + type 
+               + basementdummy  + pooldummy + school_dist
+               + year + zipcode , data = MLS))
+sm
+
+mean(sm$residuals^2)
+
+
+# Lasso Regression 
+
+grid = 10^seq(10, -2, length = 100)
+
+# Let’s set up the data now.
+# trim off the first column and leaving only the independent variables 
+
+x = model.matrix(lnprice ~ bedrooms + age + baths
+                 + style + type  + basementdummy  + pooldummy
+                 + school_dist + school_dist + zipcode 
+                 + year, MLS)[,-1] # only select the dependent variable 
+
+
+y = MLS %>% select(lnprice) %>% unlist() %>% as.numeric()
+
+
+#We now split the samples into a training set and a test set in order to
+# estimate the test error of the Lasso Regression
+
+
+set.seed(1) 
+
+# we select half of the data to train the model and half to test it 
+
+
+train = MLS %>% sample_frac(0.5) 
+test = MLS %>% setdiff(train) 
+
+
+# we now set the dependent and independent variables 
+
+x_train = model.matrix(lnprice~ bedrooms + age + baths + style
+                       + type  + basementdummy  + pooldummy
+                       + school_dist + zipcode + year, train)[,-1] 
+
+x_test = model.matrix(lnprice~bedrooms + age + baths + style + type
+                      + basementdummy  + pooldummy + school_dist
+                      + zipcode + year, test)[,-1]
+
+
+y_train = train %>% select(lnprice) %>% unlist() %>% as.numeric()
+
+y_test = test %>% select(lnprice) %>%  unlist() %>% as.numeric()
+
+#The glmnet() function has an alpha argument that determines what type
+# of model is fit. If alpha = 0 then a ridge regression model is fit, 
+# and if alpha = 1 then a lasso model is fit. 
+
+lasso_mod = glmnet(x_train, y_train, alpha = 1
+                   ,lambda = grid)  # Fit lasso model on training data 
+
+dim(coef(lasso_mod)) #Dimensions of the coefficients matrix
+
+plot(lasso_mod)    # Draw plot of coefficients
+
+# We now perform cross-validation (out of sample testing) 
+# and compute the associated test error:
+
+set.seed(1) 
+cv.out = cv.glmnet(x_train, y_train, alpha = 1) 
+            # Fit lasso model on training data 
+
+plot(cv.out) # Draw plot of training MSE as a function of lambda
+
+bestlam = cv.out$lambda.min # Select lamda that minimizes training MSE 
+lasso_pred = predict(lasso_mod, s = bestlam, newx = x_test) 
+            # Use best lambda to predict test data 
+
+mean((lasso_pred - y_test)^2) # Calculate test MSE
+
+
+out = glmnet(x, y, alpha = 1, lambda = grid) 
+    # Fit lasso model on full dataset 
+
+lasso_coef = predict(out, type = "coefficients", s = bestlam)[1:112,]
+    # Display coefficients using lambda chosen by CV 
+    #here if we have 113 index, then use 113. 
+
+lasso_coef
+
+
+
+# Selecting only the predictors with non-zero coefficients, 
+# we see that the lasso model with λ chosen by crossvalidation 
+# contains only 23 variables:
+lasso_coef[lasso_coef != 0] # Display only non-zero coefficients
